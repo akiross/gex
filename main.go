@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"runtime"
+	"time"
 
 	"github.com/go-gl/gl/v4.4-core/gl"
 	"github.com/go-gl/glfw/v3.2/glfw"
@@ -88,12 +90,6 @@ func NewOGLWindow(width, height int, title string, opts ...WinOption) *glfw.Wind
 		log.Fatalln("Failed to initialize OpenGL", err)
 	}
 	return win
-}
-
-var vertices []float32 = []float32{
-	0.0, 0.0, 0.0,
-	0.0, 1.0, 0.0,
-	1.0, 0.5, 0.0,
 }
 
 type Shader uint32
@@ -196,22 +192,28 @@ func (va VertexAttrib) Pointer(size int32, dataType uint32, normalize bool, stri
 
 var (
 	vertexShaderSource = `#version 410
-in vec3 vert;
-void main() { gl_Position = vec4(vert, 1); }
+in vec3 vert; // Input center position for this hexagon
+in vec3 color; // Input color for this hexagon
+out vec3 vColor; // Color to be forwarded to geometry shader
+void main() { gl_Position = vec4(vert, 1); vColor = color; }
 `
 
 	fragmentShaderSource = `#version 410
-out vec4 outputColor;
-void main() { outputColor = vec4(1.0, 1.0, 1.0, 1.0); }
+in vec3 gColor; // Color from geometry shader
+out vec4 oColor; // Color of fragment
+void main() { oColor = vec4(gColor, 1.0); }
 `
 
 	geometryShaderSource = `#version 410 core
 layout (points) in;
 layout (triangle_strip, max_vertices = 10) out;
+in vec3 vColor[]; // Color of each input vertex (just 1)
+out vec3 gColor; // Color for output primitives
 
 const float PI = 3.14159265;
 const float r = 0.1;
 
+// Compute position of i-th vertex using sine and cosine
 void pos(int i) {
 	float a = PI * (0.5 + i / 3.0);
 	vec2 offs = vec2(r * cos(a), r * sin(a));
@@ -219,7 +221,9 @@ void pos(int i) {
 	EmitVertex();
 }
 
+// Produce two triangle strips using vertices (top vertex is number 0, CCW)
 void main() {
+	gColor = vColor[0];
 	pos(1);
 	pos(0);
 	gl_Position = gl_in[0].gl_Position;
@@ -230,10 +234,6 @@ void main() {
 	gl_Position = gl_in[0].gl_Position;
 	pos(3);
 	pos(4);
-	/*
-	for (int i = 0; i < 4; i++) {
-		pos(i);
-	}*/
 	EndPrimitive();
 }
 `
@@ -253,7 +253,7 @@ func main() {
 	version := gl.GoStr(gl.GetString(gl.VERSION))
 	fmt.Println("Starting GEX! OpenGL version", version)
 
-	gl.ClearColor(0, 0, 0, 1) //0.6, 0.6, 0.6, 1.0)
+	gl.ClearColor(0.6, 0.6, 0.6, 1.0)
 
 	vShader := NewShader(vertexShaderSource, gl.VERTEX_SHADER)
 	fShader := NewShader(fragmentShaderSource, gl.FRAGMENT_SHADER)
@@ -278,17 +278,21 @@ func main() {
 	var bx, by float32 = -0.5, -0.5
 	//hexGrid := NewGrid(cols, rows)
 	//asd
-	vertices = make([]float32, rows*cols*2)
+	vertices := make([]float32, rows*cols*2)
+	colors := make([]float32, rows*cols*3)
 	// Fill the vertices of the hex grid centers
 	for i, k := 0, 0; i < rows; i++ {
-		for j := 0; j < cols; j, k = j+1, k+2 {
+		for j := 0; j < cols; j, k = j+1, k+1 {
 			if i%2 == 0 {
-				vertices[k+0] = bx + 0.5*hw + float32(j+i/2)*hw
-				vertices[k+1] = by + hh*2/4 + float32(i/2)*hh*3/2
+				vertices[2*k+0] = bx + 0.5*hw + float32(j+i/2)*hw
+				vertices[2*k+1] = by + hh*2/4 + float32(i/2)*hh*3/2
 			} else {
-				vertices[k+0] = bx + hw + float32(j+i/2)*hw
-				vertices[k+1] = by + hh*5/4 + float32(i/2)*hh*3/2
+				vertices[2*k+0] = bx + hw + float32(j+i/2)*hw
+				vertices[2*k+1] = by + hh*5/4 + float32(i/2)*hh*3/2
 			}
+			colors[3*k+0] = rand.Float32()
+			colors[3*k+1] = rand.Float32()
+			colors[3*k+2] = rand.Float32()
 		}
 	}
 
@@ -302,10 +306,21 @@ func main() {
 	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)
 
 	vertAttr := program.GetAttributeLocation("vert")
-	vertAttr.Enable()
 	vertAttr.Pointer(2, gl.FLOAT, false, 0, 0)
+	vertAttr.Enable()
 
-	// glBufferData can be used to change the colors. Create a secondary buffer, bind it to an attribute, then update color as needed
+	var vbo_c uint32
+	gl.GenBuffers(1, &vbo_c)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo_c)
+	gl.BufferData(gl.ARRAY_BUFFER, len(colors)*4, gl.Ptr(colors), gl.DYNAMIC_DRAW)
+
+	colAttr := program.GetAttributeLocation("color")
+	colAttr.Pointer(3, gl.FLOAT, false, 0, 0)
+	colAttr.Enable()
+
+	// glBufferSubData can be used to change the colors. Create a secondary buffer, bind it to an attribute, then update color as needed
+
+	start := time.Now()
 
 	// Main loop
 	for !win.ShouldClose() {
@@ -318,5 +333,21 @@ func main() {
 
 		win.SwapBuffers()
 		glfw.PollEvents()
+
+		if time.Since(start) > time.Second {
+			// Replace color data
+			for i, k := 0, 0; i < rows; i++ {
+				for j := 0; j < cols; j, k = j+1, k+1 {
+					colors[3*k+0] = rand.Float32()
+					colors[3*k+1] = rand.Float32()
+					colors[3*k+2] = rand.Float32()
+				}
+			}
+			gl.BindBuffer(gl.ARRAY_BUFFER, vbo_c)
+			gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(colors)*4, gl.Ptr(colors))
+			// Save new time
+			start = time.Now()
+		}
+
 	}
 }
