@@ -1,19 +1,19 @@
 package main
 
 import (
+	"flag"
 	"github.com/go-gl/glfw/v3.2/glfw"
 	"log"
-	"math"
 	"runtime"
 	"time"
 )
 
-const (
-	Rows = 25
-	Cols = 25
+var (
+	rows = flag.Int("rows", 20, "Number of rows in the grid")
+	cols = flag.Int("cols", 20, "NUmber of columns in the grid")
 
-	Width  = 1500.0 //1000.0
-	Height = 900.0  //600.0
+	width  = flag.Int("width", 1000, "Window width")
+	height = flag.Int("height", 600, "Window height")
 )
 
 var (
@@ -28,7 +28,7 @@ func myMouse(w *glfw.Window, button glfw.MouseButton, action glfw.Action, mod gl
 		x, y := w.GetCursorPos()
 		w, h := w.GetSize()
 		rx, ry := 2.0*x/float64(w)-1.0, 2.0*(float64(h)-y)/float64(h)-1.0
-		last_hit_x = float32(rx) * Width / Height
+		last_hit_x = float32(rx) * float32(*width) / float32(*height)
 		last_hit_y = float32(ry)
 		log.Println("Cliclato in position", last_hit_x, last_hit_y)
 		last_hit = true
@@ -45,16 +45,18 @@ func main() {
 	// OpenGL context is bound to a CPU thread
 	runtime.LockOSThread()
 
+	flag.Parse()
+
 	// Create a window for OpenGL
-	win := CreateWindow(int(math.Floor(Width)), int(math.Floor(Height)), "Gex")
+	win := CreateWindow(int(*width), int(*height), "Gex")
 	defer glfw.Terminate()
 
 	win.SetMouseButtonCallback(myMouse)
 	win.SetKeyCallback(myKey)
 
-	state := SetupOGL(Rows, Cols)
+	state := SetupOGL(*rows, *cols, float32(*width)/float32(*height))
 
-	grid := NewGrid(Cols, Rows)
+	grid := NewGrid(*cols, *rows)
 
 	start := time.Now()
 

@@ -40,11 +40,11 @@ type ViewState struct {
 	vertices          []float32
 }
 
-func SetupOGL(rows, cols int) *ViewState {
+func SetupOGL(rows, cols int, aspectRatio float32) *ViewState {
 	gl.ClearColor(0.6, 0.6, 0.6, 1.0)
 
 	// We want to fit the points in 90% of the real estate
-	var spaceW float32 = 0.9 * 2.0 * Width / Height
+	var spaceW float32 = 0.9 * 2.0 * aspectRatio
 	var spaceH float32 = 0.9 * 2.0
 
 	const pho = 0.866025404 // sqrt(3/4)
@@ -67,13 +67,13 @@ func SetupOGL(rows, cols int) *ViewState {
 	totH := float32(rows-1) * pho * side
 	totW := float32(cols-1)*side + 0.5*side*float32(rows-1)
 
-	var bx float32 = -1.0*Width/Height + (2.0*Width/Height-totW)*0.5
+	var bx float32 = -aspectRatio + (2.0*aspectRatio-totW)*0.5
 	var by float32 = -1.0 + (2.0-totH)*0.5
 
 	vertexShaderSource := LoadFile("./shader_hex.vert")
 	fragmentShaderSource := LoadFile("./shader_hex.frag")
 	geometryShaderSource := LoadFile("./shader_hex.geom",
-		"INV_ASPECT_RATIO", Height/Width,
+		"INV_ASPECT_RATIO", 1.0/aspectRatio,
 		"HEX_SIDE", side,
 		"PHO", pho)
 
