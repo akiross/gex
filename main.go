@@ -17,10 +17,11 @@ var (
 )
 
 var (
-	last_hit_x     float32
-	last_hit_y     float32
-	last_hit       bool
-	update_request bool
+	last_hit_x      float32
+	last_hit_y      float32
+	last_hit        bool
+	update_request  bool
+	update_interval time.Duration = time.Second
 )
 
 func myMouse(w *glfw.Window, button glfw.MouseButton, action glfw.Action, mod glfw.ModifierKey) {
@@ -38,6 +39,14 @@ func myMouse(w *glfw.Window, button glfw.MouseButton, action glfw.Action, mod gl
 func myKey(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
 	if action == glfw.Press && key == glfw.KeySpace {
 		update_request = true
+	}
+	if action == glfw.Press && key == glfw.KeyQ {
+		update_interval /= 10
+		log.Println("Update interval changed to", update_interval)
+	}
+	if action == glfw.Press && key == glfw.KeyA {
+		update_interval *= 10
+		log.Println("Update interval changed to", update_interval)
 	}
 }
 
@@ -60,6 +69,9 @@ func main() {
 
 	start := time.Now()
 
+	state.SetColors(grid.Data)
+	state.SetWeights(grid.WData)
+
 	// Main loop
 	for !win.ShouldClose() {
 		// Check if there were mouse click
@@ -68,12 +80,12 @@ func main() {
 			// Get nearest vertex of the grid
 			nx, ny := state.NearestVertex(last_hit_x, last_hit_y)
 			log.Println("Clickato era con valore", grid.Get(nx, ny))
-			grid.Set(nx, ny, 1.0-grid.Get(nx, ny)) // Toggle value
+			grid.Set(nx, ny, 1.0) //-grid.Get(nx, ny)) // Toggle value
 			state.SetColors(grid.Data)
-			grid.SetW(nx, ny, 0, 0.5)  //1.0-grid.Get(nx, ny))
-			grid.SetW(nx, ny, 1, 0.75) //1.0-grid.Get(nx, ny))
-			grid.SetW(nx, ny, 2, 1.0)  //-grid.Get(nx, ny))
-			state.SetWeights(grid.WData)
+			//grid.SetW(nx, ny, 0, 0.5)  //1.0-grid.Get(nx, ny))
+			//grid.SetW(nx, ny, 1, 0.75) //1.0-grid.Get(nx, ny))
+			//grid.SetW(nx, ny, 2, 1.0)  //-grid.Get(nx, ny))
+			//state.SetWeights(grid.WData)
 		}
 
 		state.DrawFrame()
@@ -89,9 +101,10 @@ func main() {
 			update_request = false
 		}
 
-		if time.Since(start) > time.Second {
+		if time.Since(start) > update_interval {
 			// Save new time
 			start = time.Now()
+			update_request = true
 		}
 
 	}

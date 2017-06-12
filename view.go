@@ -42,6 +42,7 @@ type ViewState struct {
 
 func SetupOGL(rows, cols int, aspectRatio float32) *ViewState {
 	gl.ClearColor(0.6, 0.6, 0.6, 1.0)
+	gl.ClearColor(0.3, 0.3, 0.3, 1.0)
 
 	// We want to fit the points in 90% of the real estate
 	var spaceW float32 = 0.9 * 2.0 * aspectRatio
