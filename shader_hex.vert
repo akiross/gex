@@ -1,4 +1,4 @@
-#version 410
+#version 450 core
 
 in vec3 vert; // Input center position for this hexagon
 in float color; // Input color for this hexagon

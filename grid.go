@@ -12,6 +12,20 @@ var nbors = [6]struct{ x_, y_, wx_, wy_, ww_ int }{
 	{1, -1, 1, -1, 0},
 }
 
+type bind struct {
+	x, y, i int
+	data    []float32
+}
+
+func (b *bind) next() float32 {
+	v := b.data[b.i]
+	b.i++
+	if b.i >= len(b.data) {
+		b.i = 0
+	}
+	return v
+}
+
 type HexGrid struct {
 	W, H  int
 	Data  []float32 // Value
@@ -19,6 +33,8 @@ type HexGrid struct {
 	Thres []float32 // Threshold
 	xWrap func(int, int) int
 	yWrap func(int, int) int
+
+	binds []bind
 }
 
 func torus(x, xn int) int {
@@ -46,6 +62,7 @@ func NewGrid(w, h int) *HexGrid {
 		tdata,
 		torus,
 		torus,
+		make([]bind, 0),
 	}
 }
 
@@ -83,6 +100,25 @@ func (hg *HexGrid) GetT(x, y int) float32 {
 func (hg *HexGrid) SetT(x, y int, v float32) {
 	x, y = hg.wrap(x, y)
 	hg.Thres[y*hg.W+x] = v
+}
+
+// This will read the values from vals every time an update
+// is performed, and will automatically set the value of the
+// cell (x,y) to that value after the update
+func (hg *HexGrid) Bind(x, y int, vals []float32) {
+	b := bind{x, y, 0, vals}
+	found := false
+	for i := range hg.binds {
+		if hg.binds[i].x == x && hg.binds[i].y == y {
+			hg.binds[i] = b // Overwrite existing bindings
+			found = true
+			break
+		}
+	}
+	if !found {
+		hg.binds = append(hg.binds, b)
+	}
+	hg.Set(x, y, vals[0]) // Set initial value
 }
 
 // Returns the weights for this edge
@@ -164,6 +200,13 @@ func (hg *HexGrid) Update() {
 	hg.Data = val
 	// Also save thresholds even if we don't need them
 	hg.Thres = thr
+
+	// Apply bound values
+	for i := range hg.binds {
+		bx, by := hg.binds[i].x, hg.binds[i].y
+		nv := hg.binds[i].next()
+		hg.Set(bx, by, nv)
+	}
 
 	// Weight depends on the newly computed value
 	for i := 0; i < hg.H; i++ {

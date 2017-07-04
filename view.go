@@ -2,7 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/go-gl/gl/v4.4-core/gl"
+	glad "github.com/akiross/go-glad"
+	"github.com/go-gl/gl/v4.5-core/gl"
 	"github.com/go-gl/glfw/v3.2/glfw"
 	"io/ioutil"
 	"math/rand"
@@ -33,11 +34,15 @@ func CreateWindow(w, h int, title string) *glfw.Window {
 }
 
 type ViewState struct {
-	rows, cols        int
-	program           Program
-	vao, vbo_c, vbo_w uint32
-	count             int
-	vertices          []float32
+	rows, cols int
+	//program           glad.Program
+	//vao, vao_txr      glad.VertexArrayObject
+	//vbo_c, vbo_w      glad.VertexBufferObject
+	//fbo_grid, fbo_env glad.FramebufferObject
+	//count             int
+	vertices []float32
+
+	autoGrid, autoLayout *glad.AutoConfig
 }
 
 func SetupOGL(rows, cols int, aspectRatio float32) *ViewState {
@@ -78,17 +83,19 @@ func SetupOGL(rows, cols int, aspectRatio float32) *ViewState {
 		"HEX_SIDE", side,
 		"PHO", pho)
 
-	vShader := NewShader(vertexShaderSource, gl.VERTEX_SHADER)
-	fShader := NewShader(fragmentShaderSource, gl.FRAGMENT_SHADER)
-	gShader := NewShader(geometryShaderSource, gl.GEOMETRY_SHADER)
+	/*
+		vShader := glad.NewShader(vertexShaderSource, gl.VERTEX_SHADER)
+		fShader := glad.NewShader(fragmentShaderSource, gl.FRAGMENT_SHADER)
+		gShader := glad.NewShader(geometryShaderSource, gl.GEOMETRY_SHADER)
 
-	program := NewProgram()
-	program.AttachShaders(vShader, fShader, gShader)
-	program.Link()
+		program := glad.NewProgram()
+		program.AttachShaders(vShader, fShader, gShader)
+		program.Link()
 
-	vShader.Delete()
-	fShader.Delete()
-	gShader.Delete()
+		vShader.Delete()
+		fShader.Delete()
+		gShader.Delete()
+	*/
 
 	vertices := make([]float32, rows*cols*2)
 	weights := make([]float32, rows*cols*3)
@@ -105,57 +112,160 @@ func SetupOGL(rows, cols int, aspectRatio float32) *ViewState {
 		}
 	}
 
-	var vao uint32
-	gl.GenVertexArrays(1, &vao)
-	gl.BindVertexArray(vao)
+	autoGrid := glad.AutoBuild(&glad.Config{
+		Shaders: []glad.Shader{
+			glad.NewShader(vertexShaderSource, gl.VERTEX_SHADER),
+			glad.NewShader(fragmentShaderSource, gl.FRAGMENT_SHADER),
+			glad.NewShader(geometryShaderSource, gl.GEOMETRY_SHADER),
+		},
+		Attributes: []glad.Attr{{0, "vert", 2}, {1, "color", 1}, {2, "weights", 3}},
+		Data:       [][]float32{vertices, colors, weights},
+		DataUsages: []uint32{gl.STATIC_DRAW, gl.DYNAMIC_DRAW, gl.DYNAMIC_DRAW},
+		Primitives: gl.POINTS,
+		Offscreen:  &glad.Rect{0, 0, 800, 600},
+		ClearColor: []float32{0.6, 0.6, 0.6, 1.0},
+	})
 
-	var vbo uint32
-	gl.GenBuffers(1, &vbo)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)
+	passThruVS := `#version 450 core
+in vec2 pos;
+in vec2 uv;
+out vec2 vUV;
+void main() { gl_Position = vec4(pos, 0.0, 1.0); vUV = uv; }
+`
 
-	vertAttr := program.GetAttributeLocation("vert")
-	vertAttr.Pointer(2, gl.FLOAT, false, 0, 0)
-	vertAttr.Enable()
+	passThruFS := `#version 450 core
+in vec2 vUV;
+out vec4 color;
+uniform sampler2D sampler;
+void main() { color = texture(sampler, vUV); }
+`
+	autoLayout := glad.AutoBuild(&glad.Config{
+		Shaders: []glad.Shader{
+			glad.NewShader(passThruVS, gl.VERTEX_SHADER),
+			glad.NewShader(passThruFS, gl.FRAGMENT_SHADER),
+		},
+		Attributes: []glad.Attr{{0, "pos", 2}, {0, "uv", 2}},
+		Data: [][]float32{
+			[]float32{
+				-1, -1, 0.0, 0.0,
+				-1, 1, 0.0, 1.0,
+				1, -1, 1.0, 0.0,
+				1, 1, 1.0, 1.0,
+			},
+		},
+		DataUsages: []uint32{gl.STATIC_DRAW},
+		Primitives: gl.TRIANGLE_STRIP,
+		Textures:   []glad.Texture{autoGrid.BgTxr},
+	})
+	//, 0.3, 0.3, 0.3, 1.0}
 
-	// Hex colors
-	var vbo_c uint32
-	gl.GenBuffers(1, &vbo_c)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo_c)
-	gl.BufferData(gl.ARRAY_BUFFER, len(colors)*4, gl.Ptr(colors), gl.DYNAMIC_DRAW)
+	/*
+		var (
+			bindVbo   uint32 = 0
+			bindVbo_c uint32 = 1
+			bindVbo_w uint32 = 2
+		)
 
-	colAttr := program.GetAttributeLocation("color")
-	colAttr.Pointer(1, gl.FLOAT, false, 0, 0)
-	colAttr.Enable()
+		vao := glad.NewVertexArrayObject()
+		vao_txr := glad.NewVertexArrayObject()
 
-	// Hex weights
-	var vbo_w uint32
-	gl.GenBuffers(1, &vbo_w)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo_w)
-	gl.BufferData(gl.ARRAY_BUFFER, len(weights)*4, gl.Ptr(weights), gl.DYNAMIC_DRAW)
+		vbo := glad.NewVertexBufferObject()
+		vbo.BufferData32(vertices, gl.STATIC_DRAW)
+		vao.VertexBuffer32(bindVbo, vbo, 0, 2)
 
-	weiAttr := program.GetAttributeLocation("weights")
-	weiAttr.Pointer(3, gl.FLOAT, false, 0, 0)
-	weiAttr.Enable()
+		vbo_c := glad.NewVertexBufferObject()
+		vbo_c.BufferData32(colors, gl.DYNAMIC_DRAW)
+		vao.VertexBuffer32(bindVbo_c, vbo_c, 0, 1)
 
-	return &ViewState{rows, cols, program, vao, vbo_c, vbo_w, rows * cols, vertices}
+		vbo_w := glad.NewVertexBufferObject()
+		vbo_w.BufferData32(weights, gl.DYNAMIC_DRAW)
+		vao.VertexBuffer32(bindVbo_w, vbo_w, 0, 3)
+
+		vertAttr := program.GetAttributeLocation("vert")
+		vao.AttribFormat32(vertAttr, 2, 0)
+		vao.AttribBinding(bindVbo, vertAttr)
+		vao.EnableAttrib(vertAttr)
+
+		colAttr := program.GetAttributeLocation("color")
+		vao.AttribFormat32(colAttr, 1, 0)
+		vao.AttribBinding(bindVbo_c, colAttr)
+		vao.EnableAttrib(colAttr)
+
+		weiAttr := program.GetAttributeLocation("weights")
+		vao.AttribFormat32(weiAttr, 3, 0)
+		vao.AttribBinding(bindVbo_w, weiAttr)
+		vao.EnableAttrib(weiAttr)
+
+		// Create FBOs and textures for rendering
+		fbo_grid := glad.NewFramebuffer()
+		txr_grid := glad.NewTexture()
+		txr_grid.Storage2D(500, 500)
+		txr_grid.SetFilters(gl.NEAREST, gl.NEAREST)
+		fbo_grid.Texture(gl.COLOR_ATTACHMENT0, txr_grid)
+
+		fbo_env := glad.NewFramebuffer()
+		txr_env := glad.NewTexture()
+		txr_env.Storage2D(500, 500)
+		txr_env.SetFilters(gl.NEAREST, gl.NEAREST)
+		fbo_env.Texture(gl.COLOR_ATTACHMENT0, txr_env)
+	*/
+
+	return &ViewState{
+		rows,
+		cols,
+		//program,
+		//vao,
+		//vbo_c,
+		//vbo_w,
+		//fbo_grid,
+		//fbo_env,
+		//txr_grid,
+		//txr_env,
+		//rows * cols,
+		vertices,
+		autoGrid,
+		autoLayout,
+	}
 }
 
 func (vs *ViewState) SetColors(colors []float32) {
-	gl.BindBuffer(gl.ARRAY_BUFFER, vs.vbo_c)
-	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(colors)*4, gl.Ptr(colors))
+	vs.autoGrid.VBOs[1].BufferSubData32(colors, 0)
+	//vs.vbo_c.BufferSubData32(colors, 0)
 }
 
 func (vs *ViewState) SetWeights(weights []float32) {
-	gl.BindBuffer(gl.ARRAY_BUFFER, vs.vbo_w)
-	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(weights)*4, gl.Ptr(weights))
+	//vs.vbo_w.BufferSubData32(weights, 0)
+	vs.autoGrid.VBOs[2].BufferSubData32(weights, 0)
 }
 
 func (vs *ViewState) DrawFrame() {
-	gl.Clear(gl.COLOR_BUFFER_BIT)
-	gl.UseProgram(uint32(vs.program))
-	gl.BindVertexArray(vs.vao)
-	gl.DrawArrays(gl.POINTS, 0, int32(vs.count))
+	//bgCol := []float32{0.6, 0.6, 0.6, 1.0, 0.3, 0.3, 0.3, 1.0}
+
+	vs.autoGrid.AutoDraw()
+	vs.autoLayout.AutoDraw()
+
+	/*
+		vs.program.Use()
+
+		vs.fbo_grid.Bind()
+		gl.ClearBufferfv(gl.COLOR, 0, &bgCol[0])
+		vs.vao.Bind()
+		gl.DrawArrays(gl.POINTS, 0, int32(vs.count))
+		vs.vao.Unbind()
+		vs.fbo_grid.Unbind()
+
+		vs.fbo_env.Bind()
+		gl.ClearBufferfv(gl.COLOR, 0, &bgCol[0])
+		vs.vao.Bind()
+		gl.DrawArrays(gl.POINTS, 0, int32(vs.count))
+		vs.vao.Unbind()
+		vs.fbo_env.Unbind()
+
+		// Draw quads with textures
+		vs.vao_txr.Bind()
+		vs.program_txr.Use()
+		gl.ClearBufferfv(gl.COLOR, 0, &bgCol[4])
+	*/
 }
 
 func (vs *ViewState) NearestVertex(x, y float32) (int, int) {
